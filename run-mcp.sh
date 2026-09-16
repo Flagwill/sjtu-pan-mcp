@@ -12,12 +12,18 @@ BASE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
     exit 1
 }
 
-exec docker run -i --rm \
-    --name "sjtu-pan-mcp-session-$$" \
+# 容器随包装进程共存亡: docker CLI 被 SIGKILL 时 sig-proxy 失效会留下孤儿 stdio 容器,
+# 故用后台 run + trap 主动回收 (opencode 正常 SIGTERM 生命周期两种都干净)
+CNAME="sjtu-pan-mcp-session-$$"
+trap 'docker kill "$CNAME" >/dev/null 2>&1 || true' EXIT INT TERM HUP
+
+docker run -i --rm \
+    --name "$CNAME" \
     --network host \
     -e WEBDAV_ROOT_URL="${WEBDAV_ROOT_URL:-http://127.0.0.1:65472}" \
     -e WEBDAV_ROOT_PATH="${WEBDAV_ROOT_PATH:-/}" \
     -e WEBDAV_AUTH_ENABLED="${WEBDAV_AUTH_ENABLED:-true}" \
     -e WEBDAV_USERNAME="${WEBDAV_USERNAME:-}" \
     -e WEBDAV_PASSWORD="${WEBDAV_PASSWORD:-}" \
-    sjtu-pan/mcp:1.0.4
+    sjtu-pan/mcp:1.0.4 &
+wait $!
