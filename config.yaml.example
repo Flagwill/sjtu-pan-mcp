@@ -1,0 +1,16 @@
+# TboxWebdav 桥配置模板. 复制为 docker/config.yaml 填入真实值 (该文件已 gitignore)
+# 生成: ./tbox-webdav.sh install   (或 cp config.yaml.example docker/config.yaml 后手填)
+#
+# Host 必须为 0.0.0.0: 容器内回环无意义, 由 compose 的 "127.0.0.1:65472:65472" 限制外部暴露面
+# CacheSize: int32 上限 2147483647 (写大了 "Exception during deserialization" 启动失败);
+#            且必须 >= 要上传的单文件大小, 否则大文件分块上传失败后无法重试 (整文件 HTTP 500)
+Host: 0.0.0.0
+Port: 65472
+CacheSize: 2147483647
+AuthMode: Custom
+AccessMode: Full
+Users:
+  - UserName: davuser
+    PassWord: <WEBDAV_PASSWORD>
+    UserToken: <SJTU_TBOX_USER_TOKEN>   # 从 cloud.sjtu.edu.cn 网页登录态获取
+    AccessMode: Full
