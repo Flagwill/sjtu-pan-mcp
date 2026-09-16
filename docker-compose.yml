@@ -1,0 +1,30 @@
+name: sjtu-pan-mcp
+
+services:
+  tbox-webdav:
+    build:
+      context: .
+      dockerfile: Dockerfile.tboxwebdav
+      args:
+        TBOX_VERSION: "1.0.1"
+    image: sjtu-pan/tbox-webdav:1.0.1
+    restart: unless-stopped          # dockerd 开机自启该容器, 崩溃 1s 退避重启
+    user: "${TBOX_UID:-2000}:${TBOX_GID:-2000}"   # 用 .env 里的宿主 uid 跑, 否则读不了 0600 的挂载配置
+    ports:
+      - "127.0.0.1:65472:65472"      # 仅暴露到宿主机回环, 不出网
+    volumes:
+      - ./docker/config.yaml:/app/config.yaml:ro
+    environment:
+      DOTNET_gcServer: "1"
+    mem_limit: 4g                    # CacheSize 最大 2GiB + .NET 堆余量
+
+  mcp:
+    profiles: ["mcp"]                # 不参与 compose up, 由 run-mcp.sh 按需 stdio 启动
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+      args:
+        MCP_VERSION: "1.0.4"
+    image: sjtu-pan/mcp:1.0.4
+    network_mode: host               # 直连宿主机回环上的桥, WEBDAV_ROOT_URL 无需改写
+    stdin_open: true

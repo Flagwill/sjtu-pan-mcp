@@ -1,0 +1,8 @@
+tbox-webdav/
+docker/
+logs/
+run/
+config.yaml
+.git
+.gitignore
+*.md
