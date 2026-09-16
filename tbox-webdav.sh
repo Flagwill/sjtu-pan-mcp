@@ -15,7 +15,7 @@ EXAMPLE="$BASE/config.yaml.example"
 PROBE_HOST=127.0.0.1
 
 die() { echo "sjtu-webdav: $*" >&2; exit 1; }
-log() { echo "sjtu-webdav: $*"; }
+log() { echo "sjtu-webdav: $*" >&2; }   # 必须 stderr: 本脚本输出可经 run-mcp.sh 汇入 MCP stdio 协议管道
 
 compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
 
@@ -60,7 +60,7 @@ check_config() {
     [ "$cache" -ge 20971520 ] || log "警告: CacheSize=$cache 过小, 大文件上传失败后无法重试, 建议 2147483647"
     port=$(conf_get "$CONF" Port "")
     [[ "$port" =~ ^[0-9]+$ ]] || die "Port 配置非法: '$port'"
-    [ "$(conf_get "$CONF" Host "")" = "0.0.0.0" ] || log "提示: 容器内 Host 应为 0.0.0.0 (当前 '$(conf_get "$CONF" Host "")'), 否则宿主机映射不到"
+    [ "$(conf_get "$CONF" Host "")" = "0.0.0.0" ] || die "容器内 Host 必须为 0.0.0.0 (当前 '$(conf_get "$CONF" Host "")')，否则宿主机映射不到"
     log "config OK ($CONF: port=$port, CacheSize=$cache)"
 }
 

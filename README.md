@@ -69,6 +69,10 @@ MCP 客户端配置 (opencode.json)：
    内联参数都算污染源）；本项目脚本统一走 docker 生命周期 + HTTP 探活。
 5. **stdio 会话容器必须显式回收**：`webdav-mcp-server` 收到 stdin EOF 不退出，docker CLI 被
    SIGKILL 时 `--rm`/sig-proxy 全部失效会留下孤儿容器；`run-mcp.sh` 用后台 run + trap 按名 kill。
+6. **MCP 包装脚本的 stdout 就是协议通道**：(a) 一切诊断必须走 stderr（`tbox-webdav.sh` 的 log 已改
+   stderr，`run-mcp.sh` 还把 ensure 输出 `1>&2` 双保险）；(b) 非交互 bash 里后台命令若未显式重定向
+   stdin，会被 POSIX 规则强制接到 `/dev/null` —— `docker run -i ... <&0 &` 的 `<&0` 不可删，
+   否则 initialize 请求进不了容器，客户端表现为 "server unavailable" 且日志毫无异常。
 
 ## 镜像
 
