@@ -64,7 +64,14 @@ check_config() {
     log "config OK ($CONF: port=$port, CacheSize=$cache)"
 }
 
+ensure_env() {
+    # compose 的 user: 缺 .env 时回退 uid 2000 -> 读不了 0600 挂载配置且 exit 0 不触发重启,
+    # 故 start/ensure 前自动生成, 保证新机器零手工步骤
+    [ -f "$BASE/.env" ] || printf 'TBOX_UID=%s\nTBOX_GID=%s\n' "$(id -u)" "$(id -g)" > "$BASE/.env"
+}
+
 do_start() {
+    ensure_env
     check_config
     compose up -d tbox-webdav
     wait_up 30 || die "启动超时: $PROBE_HOST:$PORT 未就绪, 看: docker logs sjtu-pan-mcp-tbox-webdav-1"
@@ -106,7 +113,7 @@ case "${1:-}" in
     stop)         do_stop ;;
     restart)      do_stop; do_start ;;
     status)       do_status ;;
-    ensure)       docker_ready && compose up -d tbox-webdav 2>/dev/null; wait_up 30 || die "确保运行失败" ;;
+    ensure)       ensure_env; do_start ;;
     install)      do_install ;;
     *)            die "用法: $0 {start|stop|restart|status|ensure|check-config|install}" ;;
 esac
