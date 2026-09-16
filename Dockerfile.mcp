@@ -1,7 +1,0 @@
-# MCP 侧: webdav-mcp-server 以 stdio 方式运行, 由 run-mcp.sh / opencode 按需 docker run
-FROM node:22-alpine
-
-ARG MCP_VERSION=1.0.4
-RUN npm install -g webdav-mcp-server@${MCP_VERSION}
-
-ENTRYPOINT ["webdav-mcp-server"]

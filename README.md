@@ -5,15 +5,18 @@
 
 ```
 MCP 客户端 (opencode)
-  └─ run-mcp.sh ── docker run -i (stdio) ──> sjtu-pan/mcp (node:22-alpine, webdav-mcp-server)
+  └─ run-mcp.sh ── docker run -i (stdio) ──> sjtu-pan/mcp-tbox ... mcp   [webdav-mcp-server]
                           │ HTTP (host network)
                           ▼
-              sjtu-pan/tbox-webdav (:127.0.0.1:65472 → 容器 :65472)
-                TboxWebdav 桥, 自包含 .NET 8 于 native-deps:8.0
+              sjtu-pan-mcp-tbox-webdav-1 (127.0.0.1:65472 → 容器 :65472)
+                同一镜像的 tbox 角色: TboxWebdav 桥 (musl 自包含 .NET 8)
                           │ HTTPS
                           ▼
                    交大云盘 Tbox API
 ```
+
+单镜像双角色（`entrypoint.sh` 按第一个参数分派 `tbox`/`mcp`）：桥是 compose 常驻服务，
+MCP 是每个客户端会话按需拉起的 stdio 容器。
 
 ## 部署
 
@@ -62,17 +65,21 @@ MCP 客户端配置 (opencode.json)：
    容器已配 `mem_limit: 4g` 兜底。
 3. **容器内 `Host` 必须为 `0.0.0.0`**：写 `127.0.0.1` 时 Kestrel 只绑容器回环，宿主机端口映射
    连不通。对外暴露面由 compose 的 `127.0.0.1:65472:65472` 收窄到本机回环。
-4. **别用 `pkill -f <包名>` 管理进程**：模式会匹配到发起命令自身的命令行导致误杀；本项目的脚本
-   统一走 docker 生命周期 + `/dev/tcp` 探活。
+4. **别用 `pkill -f <名字>` 管理进程**：模式会匹配到发起命令自身的命令行导致误杀（脚本文件名、
+   内联参数都算污染源）；本项目脚本统一走 docker 生命周期 + HTTP 探活。
+5. **stdio 会话容器必须显式回收**：`webdav-mcp-server` 收到 stdin EOF 不退出，docker CLI 被
+   SIGKILL 时 `--rm`/sig-proxy 全部失效会留下孤儿容器；`run-mcp.sh` 用后台 run + trap 按名 kill。
 
 ## 镜像
 
-| 镜像 | 基础 | 来源 |
+| 镜像 | 基础 | 内容 |
 |---|---|---|
-| `sjtu-pan/tbox-webdav:1.0.1` | `mcr.microsoft.com/dotnet/runtime-deps:8.0` (轻量应用镜像，仅 ICU/OpenSSL/zlib) | GitHub Release `1357310795/TboxWebdav` v1.0.1 自包含 linux-x64，`ADD` 自动解压 |
-| `sjtu-pan/mcp:1.0.4` | `node:22-alpine` | npm `webdav-mcp-server@1.0.4` |
+| `sjtu-pan/mcp-tbox:1.0.4-tbox1.0.1` | `node:22-alpine` | 上游 GitHub Release `1357310795/TboxWebdav` v1.0.1 的 **linux-musl 自包含 .NET 8** 二进制 (alpine extract 阶段拉取解压) + npm `webdav-mcp-server@1.0.4` |
 
-构建：`docker compose build`。换 TboxWebdav 版本改 compose 与 Dockerfile 的 `TBOX_VERSION`。
+- 选 musl 版 .NET 才能与 alpine 上的 node 合并成单镜像 (~300MB)；glibc 版必须配 Debian 系
+  `dotnet/runtime-deps` 基座，两个运行时栈无法共存一个镜像。
+- musl 版不捆绑 ICU，需 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` (Dockerfile 已内置)。
+- 构建：`docker compose build`。换版本改 compose 的 `TBOX_VERSION` / `MCP_VERSION`。
 
 ## 备份约定
 
