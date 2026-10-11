@@ -46,9 +46,10 @@ MCP 客户端配置 (opencode.json)：
 
 | 命令 | 作用 |
 |---|---|
-| `tbox-webdav.sh start/stop/restart/status` | 桥容器生命周期 |
-| `tbox-webdav.sh ensure` | 幂等拉起 (run-mcp.sh 内部使用) |
+| `tbox-webdav.sh start/stop/restart/status` | 桥容器生命周期；`status` 分 READY/DEGRADED/DOWN (exit 3) |
+| `tbox-webdav.sh ensure` | 幂等拉起 (run-mcp.sh 内部使用)，含就绪检查与陈旧容器自愈 |
 | `tbox-webdav.sh check-config` | 配置预检 (int32 上限 / 最小值 / 端口) |
+| `tbox-webdav.sh doctor` | 一键体检：容器 + 带凭证 PROPFIND + 容器内 DNS + 宿主机解析 + 结论 |
 | `docker logs -f sjtu-pan-mcp-tbox-webdav-1` | 桥日志 |
 
 - 自启与守护：桥容器 `restart: unless-stopped`，随 dockerd 开机拉起、崩溃自动重启，无需 systemd。
@@ -73,6 +74,21 @@ MCP 客户端配置 (opencode.json)：
    stderr，`run-mcp.sh` 还把 ensure 输出 `1>&2` 双保险）；(b) 非交互 bash 里后台命令若未显式重定向
    stdin，会被 POSIX 规则强制接到 `/dev/null` —— `docker run -i ... <&0 &` 的 `<&0` 不可删，
    否则 initialize 请求进不了容器，客户端表现为 "server unavailable" 且日志毫无异常。
+7. **桥容器“陈旧”会静默失联：DNS 要在容器重启后才刷新**。Docker 只在容器**创建**时生成
+   `/etc/resolv.conf`。若建容器时宿主机 resolv.conf 里没有可用 nameserver（切网/VPN/systemd-resolved
+   都可能导致），容器里会写着 `# NO EXTERNAL NAMESERVERS DEFINED`，嵌入式 DNS `127.0.0.11` 查不动 ——
+   **之后宿主机 DNS 恢复，运行中的容器也不会自愈**。症状（2026-10-11 实测）：宿主机解析正常、同网络新容器
+   解析正常、容器内 `EAI_AGAIN` 且每次请求卡 5s；云盘 API 全部不可达 → TboxWebdav 拿不到 folder info →
+   PROPFIND 一律 404（**是 404，不是 401/502**，MCP 层表现为 `Invalid response: 404 Not Found`，
+   极易误判成 token 失效或路径写错）。判定手势：容器内 `node -e 'require("dns").resolve4("pan.sjtu.edu.cn",(e,a)=>console.log(e||a))'`
+   （镜像里没 curl，但有 node）。**修复：`./tbox-webdav.sh restart`**，DNS 与 PROPFIND 立刻恢复
+   （注意 stop+start 不必 recreate，Docker 会在容器启动时按宿主机 resolv.conf 重写该文件）。
+   别浪费时间验证 UserToken：token 没过期时先查容器出网。
+   **现已内置自动自愈**：`run-mcp.sh` 每次拉起会话都会走 `ensure` → 带凭证做一次 PROPFIND 就绪检查
+   （旧版只探"端口通不通"，无凭证 401 也算活着，于是把这种半死状态误报成健康）。检查不过且容器内 DNS 失效时
+   自动 `restart` 一次；DNS 正常却仍不通则判定为上游/凭证问题，只告警不重启。
+   `status` 从此分三态：`READY`(PROPFIND 207) / `DEGRADED`(在听但云盘不通，exit 3) / `DOWN`(exit 3)。
+   一键体检：`./tbox-webdav.sh doctor`（容器状态、带凭证 PROPFIND、容器 resolv.conf、容器内 DNS、宿主机解析、结论）。
 
 ## 镜像
 
