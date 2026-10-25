@@ -99,12 +99,14 @@ container_dns_ok() {
 
 # 自愈: 容器在听端口但云盘 API 不通时, 陈旧容器(DNS 失效)重启一次即可恢复
 self_heal() {
-    ready && return 0
+    local code
+    code=$(dav_code)
+    [ "$code" = "207" ] && return 0
     if container_dns_ok; then
-        log "警告: 云盘 API 不通, 但容器内 DNS 正常 (PROPFIND=$(dav_code)) — 不重启, 疑似上游/UserToken 问题, 执行 '$0 doctor'"
+        log "警告: 云盘 API 不通, 但容器内 DNS 正常 (PROPFIND=$code) — 不重启, 疑似上游/UserToken 问题, 执行 '$0 doctor'"
         return 1
     fi
-    log "检出陈旧容器: 容器内 DNS 失效 (PROPFIND=$(dav_code)), 自动 restart 自愈 ..."
+    log "检出陈旧容器: 容器内 DNS 失效 (PROPFIND=$code), 自动 restart 自愈 ..."
     compose restart tbox-webdav >&2 || true
     wait_up 30 || { log "restart 后桥未监听: docker logs $CONTAINER"; return 1; }
     wait_ready 20 || { log "restart 后仍未就绪 (PROPFIND=$(dav_code)), 执行 '$0 doctor'"; return 1; }
@@ -146,9 +148,7 @@ do_start() {
     compose up -d tbox-webdav
     wait_up 30 || die "启动超时: $PROBE_HOST:$PORT 未就绪, 看: docker logs $CONTAINER"
     # 每个 MCP 会话都会经 run-mcp.sh 走到这里: 陈旧容器在这一步自动修掉, 无需人工 restart
-    if ! ready; then
-        self_heal || log "警告: 桥未就绪, MCP 工具此刻会返回 404; 执行 '$0 doctor' 诊断"
-    fi
+    self_heal || log "警告: 桥未就绪, MCP 工具此刻会返回 404; 执行 '$0 doctor' 诊断"
     log "已启动 ($PROBE_HOST:$PORT)"
 }
 
@@ -165,12 +165,14 @@ do_status() {
         return 3
     fi
     docker ps --filter "name=${CONTAINER}" --format '  container: {{.Status}}'
-    if ready; then
+    local code
+    code=$(dav_code)
+    if [ "$code" = "207" ]; then
         log "READY    $PROBE_HOST:$PORT (PROPFIND 207: 云盘可达, MCP 工具可用)"
         return 0
     fi
     # 关键: 以前这里只报 RUNNING, "监听正常但云盘 404" 会被当成健康
-    log "DEGRADED $PROBE_HOST:$PORT (监听正常但云盘 API 不通, PROPFIND=$(dav_code): MCP 工具此刻全 404)"
+    log "DEGRADED $PROBE_HOST:$PORT (监听正常但云盘 API 不通, PROPFIND=$code: MCP 工具此刻全 404)"
     if container_dns_ok; then
         log "  容器内 DNS 正常 → 上游/凭证问题, 执行 '$0 doctor'"
     else
@@ -263,7 +265,9 @@ do_doctor() {
     docker ps -a --filter "name=${CONTAINER}" --format '  {{.Names}}: {{.Status}}' 2>/dev/null
     log "--- 探活 ---"
     alive && log "  alive: 是" || log "  alive: 否"
-    log "  PROPFIND(带凭证): $(dav_code)   [207=云盘可达, 401=凭证, 000=不通]"
+    local code
+    code=$(dav_code)
+    log "  PROPFIND(带凭证): $code   [207=云盘可达, 401=凭证, 000=不通]"
     log "--- 容器网络 ---"
     local rc line
     rc=$(docker exec "$CONTAINER" sh -c 'grep -E "^(nameserver|# NO EXTERNAL)" /etc/resolv.conf' 2>/dev/null)
@@ -276,7 +280,7 @@ do_doctor() {
     hn=$(getent hosts pan.sjtu.edu.cn 2>/dev/null | head -1)
     log "  宿主机解析 pan.sjtu.edu.cn: ${hn:-失败}"
     log "--- 结论 ---"
-    if ready; then log "  一切正常"
+    if [ "$code" = "207" ]; then log "  一切正常"
     elif ! alive; then log "  桥未运行: $0 start"
     elif ! container_dns_ok; then log "  陈旧容器 DNS 失效: $0 restart"
     else log "  DNS 正常但云盘 API 不通: 查 UserToken 是否过期 — docker logs $CONTAINER"
