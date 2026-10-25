@@ -1,10 +1,12 @@
 # sjtu-pan-mcp
 
+[![CI](https://github.com/Flagwill/sjtu-pan-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Flagwill/sjtu-pan-mcp/actions/workflows/ci.yml)
+
 交大云盘 (cloud.sjtu.edu.cn) 的 MCP 化部署：把云盘映射为 WebDAV，再以 `webdav-mcp-server`
-(stdio) 提供给 opencode / Claude 等 MCP 客户端。全链路 Docker 化，密钥不进仓库。
+(stdio) 提供给任何支持 stdio MCP 的客户端。全链路 Docker 化，密钥不进仓库。
 
 ```
-MCP 客户端 (opencode)
+MCP 客户端
   └─ run-mcp.sh ── docker run -i (stdio) ──> sjtu-pan/mcp-tbox ... mcp   [webdav-mcp-server]
                           │ HTTP (host network)
                           ▼
@@ -18,29 +20,46 @@ MCP 客户端 (opencode)
 单镜像双角色（`entrypoint.sh` 按第一个参数分派 `tbox`/`mcp`）：桥是 compose 常驻服务，
 MCP 是每个客户端会话按需拉起的 stdio 容器。
 
-## 部署
+## 快速开始
+
+需要 Docker Engine 和 Docker Compose v2。
 
 ```bash
-cp config.yaml.example docker/config.yaml   # 或 ./tbox-webdav.sh install
+git clone https://github.com/Flagwill/sjtu-pan-mcp.git
+cd sjtu-pan-mcp
+./tbox-webdav.sh install
 # 编辑 docker/config.yaml: 填入 WebDAV 密码与云盘 UserToken (文件已 gitignore)
-./tbox-webdav.sh start                       # 首次会触发镜像构建
+./tbox-webdav.sh start
 ./tbox-webdav.sh status
+./tbox-webdav.sh client-config
 ```
 
-MCP 客户端配置 (opencode.json)：
+`install` 会生成 `.env`（当前用户 UID/GID）和 `docker/config.yaml`（权限 0600）。
+首次 `start` 会构建镜像。`status` 返回 `READY` 才表示云盘真的可达；
+`DEGRADED` 表示端口在听但云盘 API 不通。
+
+## 客户端
+
+MCP 客户端只需要启动 `run-mcp.sh`。HTTP 桥的用户名、密码和端口由脚本从
+`docker/config.yaml` 读取，不需要在客户端配置里重复保存密码。
+
+opencode (`opencode.json`)：
 
 ```json
-"mcp": {
-  "sjtu-pan": {
-    "type": "local",
-    "command": ["<绝对路径>/run-mcp.sh"],
-    "environment": {
-      "WEBDAV_ROOT_URL": "http://127.0.0.1:65472",
-      "WEBDAV_USERNAME": "...", "WEBDAV_PASSWORD": "***"
+{
+  "mcp": {
+    "sjtu-pan": {
+      "type": "local",
+      "command": ["/absolute/path/sjtu-pan-mcp/run-mcp.sh"],
+      "enabled": true
     }
   }
 }
 ```
+
+Claude Desktop、Cursor、VS Code、Codex 的配置和远程桥接方式见
+[docs/clients.md](docs/clients.md)。也可以直接运行 `./tbox-webdav.sh client-config`
+生成通用 JSON。
 
 ## 运维
 
@@ -48,13 +67,56 @@ MCP 客户端配置 (opencode.json)：
 |---|---|
 | `tbox-webdav.sh start/stop/restart/status` | 桥容器生命周期；`status` 分 READY/DEGRADED/DOWN (exit 3) |
 | `tbox-webdav.sh ensure` | 幂等拉起 (run-mcp.sh 内部使用)，含就绪检查与陈旧容器自愈 |
-| `tbox-webdav.sh check-config` | 配置预检 (int32 上限 / 最小值 / 端口) |
-| `tbox-webdav.sh doctor` | 一键体检：容器 + 带凭证 PROPFIND + 容器内 DNS + 宿主机解析 + 结论 |
-| `docker logs -f sjtu-pan-mcp-tbox-webdav-1` | 桥日志 |
+| `tbox-webdav.sh check-config` | 配置预检 (占位符 / int32 上限 / 最小值 / 端口) |
+| `tbox-webdav.sh config` | 显示配置摘要（密码和 token 脱敏） |
+| `tbox-webdav.sh client-config` | 输出 MCP 客户端 JSON（不含密码） |
+| `tbox-webdav.sh logs [-f]` | 查看桥日志；`-f` 持续跟随 |
+| `tbox-webdav.sh doctor` | 一键体检：配置 + 容器 + 带凭证 PROPFIND + DNS + 结论 |
+| `tbox-webdav.sh version` | 显示版本/提交 |
+| `make test` | 语法检查 + 无 Docker CLI 回归测试 |
 
 - 自启与守护：桥容器 `restart: unless-stopped`，随 dockerd 开机拉起、崩溃自动重启，无需 systemd。
 - MCP 容器不常驻：每个客户端会话由 `run-mcp.sh` 起一个 `--rm` 的 stdio 容器，退出即回收。
 - 大文件上传走宿主机 `curl -T` 直传 WebDAV 端点，不要经由 MCP 工具 (字符串 content 会撑爆上下文)。
+- compose 自带 healthcheck（只验证 TboxWebdav 在响应）；云盘可达性仍以 `tbox-webdav.sh status` 为准。
+
+## 配置项
+
+敏感值只放在 `docker/config.yaml`。`.env` 和以下环境变量用于部署参数：
+
+| 变量 | 默认值 | 作用 |
+|---|---|---|
+| `SJTU_PAN_BASE` | 脚本所在目录 | 仓库/实例根目录 |
+| `SJTU_PAN_CONFIG` | `$BASE/docker/config.yaml` | 桥配置文件 |
+| `SJTU_PAN_COMPOSE` | `$BASE/docker-compose.yml` | compose 文件 |
+| `SJTU_PAN_EXAMPLE` | `$BASE/config.yaml.example` | `install` 使用的模板 |
+| `SJTU_PAN_PROBE_HOST` | `127.0.0.1` | 探活地址 |
+| `COMPOSE_PROJECT_NAME` | `sjtu-pan-mcp` | compose 项目名，也用于会话容器前缀 |
+| `TBOX_CONTAINER` | `${COMPOSE_PROJECT_NAME}-tbox-webdav-1` | 桥容器名 |
+| `TBOX_IMAGE` | `sjtu-pan/mcp-tbox:1.0.4-tbox1.0.1` | 桥与 MCP 会话共用镜像 |
+| `TBOX_VERSION` / `MCP_VERSION` | `1.0.1` / `1.0.4` | 构建参数 |
+| `WEBDAV_ROOT_URL` | `http://127.0.0.1:<config Port>` | 覆盖桥地址（远程/独立桥） |
+| `WEBDAV_USERNAME` / `WEBDAV_PASSWORD` | 从 `docker/config.yaml` 读取 | 覆盖桥 Basic Auth |
+| `WEBDAV_ROOT_PATH` | `/` | 映射到 MCP 的 WebDAV 根路径 |
+| `WEBDAV_AUTH_ENABLED` | `true` | 是否向桥发送 Basic Auth |
+
+`.env.example` 是可选参数模板；`install/ensure` 只在 `.env` 不存在时自动写入 UID/GID，不覆盖已有配置。
+
+### 多实例
+
+在各自的 `.env` 里设置不同的 `COMPOSE_PROJECT_NAME`，并同时修改该实例
+`docker/config.yaml` 的 `Port` 和 `docker-compose.yml` 的端口映射。客户端指向对应实例的
+`run-mcp.sh` 即可。
+
+## 安全
+
+- `docker/config.yaml` 必须是 `0600`，且永远不要提交；`.gitignore` 同时覆盖
+  `docker/config.yaml.*` 备份文件。
+- `UserToken` 等同云盘访问凭据。怀疑泄漏时重新登录 `cloud.sjtu.edu.cn` 轮换。
+- WebDAV Basic Auth 只绑定 `127.0.0.1`；远程访问请走 VPN/TLS，不要直接暴露公网。
+- 不要提交 `Logging__LogLevel__System.Net.Http.HttpClient: Trace` 之类的调试配置；
+  Trace 可能把请求头/URL 写进容器日志。
+- 报告漏洞请使用 GitHub Security Advisories；完整约定见 [SECURITY.md](SECURITY.md)。
 
 ## 已知坑 (实测结论，勿回退)
 
@@ -99,7 +161,19 @@ MCP 客户端配置 (opencode.json)：
 - 选 musl 版 .NET 才能与 alpine 上的 node 合并成单镜像 (~300MB)；glibc 版必须配 Debian 系
   `dotnet/runtime-deps` 基座，两个运行时栈无法共存一个镜像。
 - musl 版不捆绑 ICU，需 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` (Dockerfile 已内置)。
-- 构建：`docker compose build`。换版本改 compose 的 `TBOX_VERSION` / `MCP_VERSION`。
+- 构建：`docker compose build`。换版本改 `.env` 的 `TBOX_VERSION` / `MCP_VERSION`，
+  或用 `TBOX_IMAGE` 指定已构建/已发布的镜像。
+
+## 开发与测试
+
+```bash
+make test     # bash -n + tests/test_cli.sh（不需要 Docker）
+make lint     # bash -n + docker compose config --quiet
+make status   # 桥状态
+make doctor   # 完整体检
+```
+
+CI 会运行同样的语法检查、CLI 回归和 compose 配置校验。
 
 ## 备份约定
 

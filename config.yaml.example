@@ -1,5 +1,7 @@
 # TboxWebdav 桥配置模板. 复制为 docker/config.yaml 填入真实值 (该文件已 gitignore)
 # 生成: ./tbox-webdav.sh install   (或 cp config.yaml.example docker/config.yaml 后手填)
+# 检查: ./tbox-webdav.sh check-config / config / doctor
+# 注意: docker/config.yaml.* 备份同样含凭据，已在 .gitignore 中忽略
 #
 # Host 必须为 0.0.0.0: 容器内回环无意义, 由 compose 的 "127.0.0.1:65472:65472" 限制外部暴露面
 # CacheSize: int32 上限 2147483647 (写大了 "Exception during deserialization" 启动失败);

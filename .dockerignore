@@ -3,6 +3,13 @@ docker/
 logs/
 run/
 config.yaml
+.env
+.env.*
+!.env.example
+.github/
+docs/
+tests/
+Makefile
 .git
 .gitignore
 *.md

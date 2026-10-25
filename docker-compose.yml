@@ -1,4 +1,4 @@
-name: sjtu-pan-mcp
+name: ${COMPOSE_PROJECT_NAME:-sjtu-pan-mcp}
 
 services:
   tbox-webdav:
@@ -6,9 +6,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        TBOX_VERSION: "1.0.1"
-        MCP_VERSION: "1.0.4"
-    image: sjtu-pan/mcp-tbox:1.0.4-tbox1.0.1
+        TBOX_VERSION: "${TBOX_VERSION:-1.0.1}"
+        MCP_VERSION: "${MCP_VERSION:-1.0.4}"
+    image: ${TBOX_IMAGE:-sjtu-pan/mcp-tbox:1.0.4-tbox1.0.1}
     restart: unless-stopped          # dockerd 开机自启该容器, 崩溃 1s 退避重启
     user: "${TBOX_UID:-2000}:${TBOX_GID:-2000}"   # 用 .env 里的宿主 uid 跑, 否则读不了 0600 的挂载配置
     ports:
@@ -17,4 +17,25 @@ services:
       - ./docker/config.yaml:/app/config.yaml:ro
     environment:
       DOTNET_gcServer: "1"
+    healthcheck:
+      # 只验证 TboxWebdav 是否在响应（匿名 401 也算健康）；云盘可达性用 tbox-webdav.sh status/doctor 判断。
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const http = require("http");
+          const req = http.get("http://127.0.0.1:65472/", (res) => {
+            res.resume();
+            process.exit(0);
+          });
+          req.on("error", () => process.exit(1));
+          req.setTimeout(3000, () => {
+            req.destroy();
+            process.exit(1);
+          });
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     mem_limit: 4g                    # CacheSize 最大 2GiB + .NET 堆余量; mcp 会话角色不在此服务内

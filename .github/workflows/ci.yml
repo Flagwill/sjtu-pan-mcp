@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n entrypoint.sh run-mcp.sh tbox-webdav.sh tests/test_cli.sh
+
+      - name: CLI regression (no Docker)
+        run: bash tests/test_cli.sh
+
+      - name: Compose config
+        run: docker compose config --quiet

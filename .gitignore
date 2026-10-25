@@ -1,8 +1,11 @@
-# 密钥与运行时
+# 密钥与运行时（备份同样含凭据）
 docker/config.yaml
+docker/config.yaml.*
 config.yaml
 .davpass
 tbox-webdav/
 logs/
 run/
 .env
+.env.*
+!.env.example
